@@ -1,0 +1,8 @@
+"frontend/raktsetu-ui/**/*.{js,jsx,ts,tsx}":
+  - "eslint --config frontend/raktsetu-ui/eslint.config.mjs --fix"
+  - "prettier --write"
+"packages/shared/src/**/*.ts":
+  - "eslint --config packages/shared/.eslintrc.json --fix"
+  - "prettier --write"
+"**/*.{json,md,css}":
+  - "prettier --write"
