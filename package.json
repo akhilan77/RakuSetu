@@ -1,0 +1,28 @@
+{
+  "name": "raktsetu-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "lint": "pnpm --filter @raktsetu/shared lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\""
+  },
+  "dependencies": {
+    "lucide-react": "^1.27.0"
+  },
+  "devDependencies": {
+    "husky": "^9.0.11",
+    "lint-staged": "^15.2.5",
+    "prettier": "^3.2.5",
+    "eslint": "^9.3.0"
+  },
+  "lint-staged": {
+    "**/*.{js,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "**/*.{json,md,css}": [
+      "prettier --write"
+    ]
+  }
+}
