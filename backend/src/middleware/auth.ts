@@ -6,7 +6,8 @@ import { ErrorCode } from '../constants/error-codes.js';
 import { Role } from '@prisma/client';
 
 interface JwtPayload {
-  userId: string;
+  userId?: string;
+  sub?: string;
   phone: string;
   roles: Role[];
 }
@@ -28,7 +29,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     const payload = jwt.verify(token, appConfig.jwt.secret) as JwtPayload;
     
     req.user = {
-      id: payload.userId,
+      id: (payload.sub || payload.userId)!,
       phone: payload.phone,
       roles: payload.roles,
     };
