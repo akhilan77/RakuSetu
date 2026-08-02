@@ -31,5 +31,20 @@ export class AnalyticsService {
     const key = `analytics:donors:monthly:${isDev}`;
     return analyticsCacheService.getOrSetCache(key, () => analyticsRepository.getMonthlyDonationTrends());
   }
+
+  async getDemandSummary(isDev: boolean) {
+    const key = `analytics:demand:summary:${isDev}`;
+    return analyticsCacheService.getOrSetCache(key, () => analyticsRepository.getDemandSummary());
+  }
+
+  async getBloodGroupDemand(isDev: boolean) {
+    const key = `analytics:demand:blood-groups:${isDev}`;
+    return analyticsCacheService.getOrSetCache(key, () => analyticsRepository.getBloodGroupDemand());
+  }
+
+  async getExecutiveOverview(isDev: boolean) {
+    const key = `analytics:overview:${isDev}`;
+    return analyticsCacheService.getOrSetCache(key, () => analyticsRepository.getExecutiveOverview());
+  }
 }
 export const analyticsService = new AnalyticsService();

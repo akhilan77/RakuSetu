@@ -72,6 +72,31 @@ describe('Healthcare Analytics Module Tests', () => {
       expect(trends).toBeInstanceOf(Array);
       expect(trends).toHaveLength(12); // Last 12 months
     });
+
+    it('should aggregate demand summaries correctly', async () => {
+      const summary = await analyticsRepository.getDemandSummary();
+      expect(summary).toHaveProperty('totalRequests');
+      expect(summary).toHaveProperty('activeRequests');
+      expect(summary).toHaveProperty('fulfilledRequests');
+      expect(summary).toHaveProperty('cancelledRequests');
+    });
+
+    it('should calculate blood group demand distributions correctly', async () => {
+      const demand = await analyticsRepository.getBloodGroupDemand();
+      expect(demand).toBeInstanceOf(Array);
+      expect(demand.length).toBe(8);
+      demand.forEach((item) => {
+        expect(item).toHaveProperty('bloodGroup');
+        expect(item).toHaveProperty('requests');
+        expect(item).toHaveProperty('percentage');
+      });
+    });
+
+    it('should aggregate executive overview correctly', async () => {
+      const overview = await analyticsRepository.getExecutiveOverview();
+      expect(overview).toHaveProperty('donors');
+      expect(overview).toHaveProperty('requests');
+    });
   });
 
   describe('Caching & Invalidation Subsystem', () => {
@@ -125,6 +150,21 @@ describe('Healthcare Analytics Module Tests', () => {
       expect(valUnrelated).toBe('data'); // Surgically ignored
 
       await redis.del(unrelated);
+    });
+
+    it('should surgically invalidate demand and overview caches', async () => {
+      const kd = 'analytics:demand:k';
+      const ko = 'analytics:overview:k';
+      
+      await redis.set(kd, 'demand-data');
+      await redis.set(ko, 'overview-data');
+
+      await analyticsCacheService.invalidateDemandAnalytics();
+      expect(await redis.get(kd)).toBeNull();
+      expect(await redis.get(ko)).toBe('overview-data');
+
+      await analyticsCacheService.invalidateOverviewAnalytics();
+      expect(await redis.get(ko)).toBeNull();
     });
   });
 });

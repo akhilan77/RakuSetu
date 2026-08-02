@@ -1,16 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "../../../lib/api";
 import {
   Users,
   Activity,
   Heart,
   Globe,
-  TrendingUp,
   Calendar,
   AlertTriangle,
   RotateCw,
+  GitPullRequest,
+  CheckCircle,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -27,6 +28,13 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import {
+  KpiCard,
+  AnalyticsCard,
+  ChartContainer,
+  EmptyState,
+  LoadingState,
+} from "../../../components/analytics";
 
 interface DonorSummary {
   totalDonors: number;
@@ -51,17 +59,23 @@ interface GeographyItem {
   count: number;
 }
 
-interface RetentionStats {
-  firstTimeDonors: number;
-  repeatDonors: number;
-  averageDonations: number;
-  retentionRate: number;
-}
-
 interface MonthlyTrendItem {
   month: string;
   donationCount: number;
   uniqueDonors: number;
+}
+
+interface DemandSummary {
+  totalRequests: number;
+  activeRequests: number;
+  fulfilledRequests: number;
+  cancelledRequests: number;
+}
+
+interface DemandBloodGroupItem {
+  bloodGroup: string;
+  requests: number;
+  percentage: number;
 }
 
 interface MetaInfo {
@@ -88,16 +102,25 @@ const COLORS = [
 ];
 
 export default function AnalyticsPage() {
-  const [activeTab, setActiveTab] = useState<"overview" | "donors">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "demand">("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Donor and general stats
   const [summary, setSummary] = useState<DonorSummary | null>(null);
   const [bloodGroups, setBloodGroups] = useState<BloodGroupItem[]>([]);
   const [eligibility, setEligibility] = useState<EligibilityItem[]>([]);
   const [geography, setGeography] = useState<GeographyItem[]>([]);
-  const [retention, setRetention] = useState<RetentionStats | null>(null);
   const [monthlyTrends, setMonthlyTrends] = useState<MonthlyTrendItem[]>([]);
+
+  // Demand stats
+  const [demandSummary, setDemandSummary] = useState<DemandSummary | null>(
+    null,
+  );
+  const [bloodGroupDemand, setBloodGroupDemand] = useState<
+    DemandBloodGroupItem[]
+  >([]);
+
   const [isDevData, setIsDevData] = useState(false);
 
   const fetchAnalytics = useCallback(async () => {
@@ -105,35 +128,47 @@ export default function AnalyticsPage() {
       setLoading(true);
       setError(null);
 
-      const [summaryRes, bgRes, eligRes, geoRes, retRes, trendRes] =
-        await Promise.all([
-          apiClient<ApiResponse<DonorSummary>>(
-            "/api/v1/analytics/donors/summary",
-          ),
-          apiClient<ApiResponse<BloodGroupItem[]>>(
-            "/api/v1/analytics/donors/blood-groups",
-          ),
-          apiClient<ApiResponse<EligibilityItem[]>>(
-            "/api/v1/analytics/donors/eligibility",
-          ),
-          apiClient<ApiResponse<GeographyItem[]>>(
-            "/api/v1/analytics/donors/geography",
-          ),
-          apiClient<ApiResponse<RetentionStats>>(
-            "/api/v1/analytics/donors/retention",
-          ),
-          apiClient<ApiResponse<MonthlyTrendItem[]>>(
-            "/api/v1/analytics/donors/monthly",
-          ),
-        ]);
+      const [
+        summaryRes,
+        bgRes,
+        eligRes,
+        geoRes,
+        trendRes,
+        demandSumRes,
+        demandBgRes,
+      ] = await Promise.all([
+        apiClient<ApiResponse<DonorSummary>>(
+          "/api/v1/analytics/donors/summary",
+        ),
+        apiClient<ApiResponse<BloodGroupItem[]>>(
+          "/api/v1/analytics/donors/blood-groups",
+        ),
+        apiClient<ApiResponse<EligibilityItem[]>>(
+          "/api/v1/analytics/donors/eligibility",
+        ),
+        apiClient<ApiResponse<GeographyItem[]>>(
+          "/api/v1/analytics/donors/geography",
+        ),
+        apiClient<ApiResponse<MonthlyTrendItem[]>>(
+          "/api/v1/analytics/donors/monthly",
+        ),
+        apiClient<ApiResponse<DemandSummary>>(
+          "/api/v1/analytics/demand/summary",
+        ),
+        apiClient<ApiResponse<DemandBloodGroupItem[]>>(
+          "/api/v1/analytics/demand/blood-groups",
+        ),
+      ]);
 
       setSummary(summaryRes.data);
       setBloodGroups(bgRes.data);
       setEligibility(eligRes.data);
       setGeography(geoRes.data);
-      setRetention(retRes.data);
       setMonthlyTrends(trendRes.data);
-      setIsDevData(summaryRes.meta.isDevData);
+      setDemandSummary(demandSumRes.data);
+      setBloodGroupDemand(demandBgRes.data);
+
+      setIsDevData(summaryRes.meta.isDevData || demandSumRes.meta.isDevData);
     } catch (err: unknown) {
       console.error(err);
       setError("Failed to fetch healthcare analytics data. Please try again.");
@@ -155,26 +190,7 @@ export default function AnalyticsPage() {
   }, [fetchAnalytics]);
 
   if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <div className="h-8 w-48 bg-slate-200 animate-pulse rounded"></div>
-          <div className="h-10 w-24 bg-slate-200 animate-pulse rounded"></div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div
-              key={i}
-              className="h-28 bg-slate-200 animate-pulse rounded-xl"
-            ></div>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="h-80 bg-slate-200 animate-pulse rounded-xl"></div>
-          <div className="h-80 bg-slate-200 animate-pulse rounded-xl"></div>
-        </div>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error) {
@@ -194,6 +210,10 @@ export default function AnalyticsPage() {
       </div>
     );
   }
+
+  const hasDonationTrends = monthlyTrends.some((t) => t.donationCount > 0);
+  const hasBloodGroups = bloodGroups.some((g) => g.count > 0);
+  const hasDemandGroup = bloodGroupDemand.some((d) => d.requests > 0);
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -231,14 +251,14 @@ export default function AnalyticsPage() {
             Overview
           </button>
           <button
-            onClick={() => setActiveTab("donors")}
+            onClick={() => setActiveTab("demand")}
             className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-              activeTab === "donors"
+              activeTab === "demand"
                 ? "bg-white dark:bg-slate-800 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-800"
             }`}
           >
-            Donor Attributes
+            Demand Trends
           </button>
         </div>
       </div>
@@ -248,98 +268,139 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
           {/* KPI Metrics row */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-5 rounded-2xl flex items-center space-x-4 shadow-sm">
-              <div className="p-3 bg-red-500/10 text-red-500 rounded-xl">
-                <Users className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="text-slate-400 dark:text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                  Total Donors
-                </div>
-                <div className="text-2xl font-bold tracking-tight">
-                  {summary?.totalDonors}
-                </div>
-              </div>
-            </div>
+            <KpiCard
+              title="Total Donors"
+              value={summary?.totalDonors}
+              icon={<Users className="h-6 w-6" />}
+              colorClass="bg-red-500/10 text-red-500"
+            />
+            <KpiCard
+              title="Total Requests"
+              value={demandSummary?.totalRequests}
+              icon={<GitPullRequest className="h-6 w-6" />}
+              colorClass="bg-blue-500/10 text-blue-500"
+            />
+            <KpiCard
+              title="Active Requests"
+              value={demandSummary?.activeRequests}
+              icon={<Activity className="h-6 w-6" />}
+              colorClass="bg-amber-500/10 text-amber-500"
+            />
+            <KpiCard
+              title="Fulfilled Requests"
+              value={demandSummary?.fulfilledRequests}
+              icon={<CheckCircle className="h-6 w-6" />}
+              colorClass="bg-emerald-500/10 text-emerald-500"
+            />
+          </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-5 rounded-2xl flex items-center space-x-4 shadow-sm">
-              <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl">
-                <Activity className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="text-slate-400 dark:text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                  Repeat Donors
-                </div>
-                <div className="text-2xl font-bold tracking-tight">
-                  {retention?.repeatDonors}
-                </div>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Blood group Pie chart */}
+            <AnalyticsCard
+              title="Blood Group Distribution"
+              icon={<Users className="h-5 w-5 text-slate-400" />}
+            >
+              {hasBloodGroups ? (
+                <ChartContainer heightClass="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={bloodGroups}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={4}
+                        dataKey="count"
+                        nameKey="bloodGroup"
+                      >
+                        {bloodGroups.map((_, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend
+                        layout="horizontal"
+                        align="center"
+                        verticalAlign="bottom"
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <EmptyState message="No donor profiles available to analyze." />
+              )}
+            </AnalyticsCard>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-5 rounded-2xl flex items-center space-x-4 shadow-sm">
-              <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl">
-                <Heart className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="text-slate-400 dark:text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                  Avg Donations / Donor
-                </div>
-                <div className="text-2xl font-bold tracking-tight">
-                  {retention?.averageDonations}
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-5 rounded-2xl flex items-center space-x-4 shadow-sm">
-              <div className="p-3 bg-purple-500/10 text-purple-500 rounded-xl">
-                <TrendingUp className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="text-slate-400 dark:text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                  Retention Rate
-                </div>
-                <div className="text-2xl font-bold tracking-tight">
-                  {retention?.retentionRate}%
-                </div>
-              </div>
-            </div>
+            {/* Eligibility status Bar chart */}
+            <AnalyticsCard
+              title="Donor Eligibility Status"
+              icon={<Heart className="h-5 w-5 text-slate-400" />}
+            >
+              {summary && summary.totalDonors > 0 ? (
+                <ChartContainer heightClass="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={eligibility}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="status" stroke="#94a3b8" fontSize={12} />
+                      <YAxis stroke="#94a3b8" fontSize={12} />
+                      <Tooltip />
+                      <Bar
+                        dataKey="count"
+                        name="Donors Count"
+                        radius={[8, 8, 0, 0]}
+                      >
+                        <Cell fill="#10b981" />
+                        <Cell fill="#f59e0b" />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <EmptyState message="No donor profiles available to calculate eligibility." />
+              )}
+            </AnalyticsCard>
           </div>
 
           {/* Line Chart row */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-6 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center space-x-2">
-              <Calendar className="h-5 w-5 text-slate-400" />
-              <h2 className="text-lg font-bold tracking-tight">
-                Monthly Donation Trends (Last 12 Months)
-              </h2>
-            </div>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyTrends}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
-                  <YAxis stroke="#94a3b8" fontSize={12} />
-                  <Tooltip />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="donationCount"
-                    name="Donations"
-                    stroke="#ef4444"
-                    strokeWidth={3}
-                    activeDot={{ r: 6 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="uniqueDonors"
-                    name="Unique Donors"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          <AnalyticsCard
+            title="Monthly Donation Trends (Last 12 Months)"
+            icon={<Calendar className="h-5 w-5 text-slate-400" />}
+          >
+            {hasDonationTrends ? (
+              <ChartContainer>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={monthlyTrends}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
+                    <YAxis stroke="#94a3b8" fontSize={12} />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="donationCount"
+                      name="Donations"
+                      stroke="#ef4444"
+                      strokeWidth={3}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="uniqueDonors"
+                      name="Unique Donors"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            ) : (
+              <EmptyState message="No donation history records found for the past year." />
+            )}
+          </AnalyticsCard>
 
           {/* Geography aggregation row */}
           <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-2xl shadow-sm overflow-hidden">
@@ -395,67 +456,112 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Donors Attributes Tab Content */}
-      {activeTab === "donors" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Blood group Pie chart */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-6 rounded-2xl shadow-sm flex flex-col space-y-4">
-            <h2 className="text-lg font-bold tracking-tight">
-              Blood Group Mix Distribution
-            </h2>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={bloodGroups}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={4}
-                    dataKey="count"
-                    nameKey="bloodGroup"
-                  >
-                    {bloodGroups.map((_, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend
-                    layout="horizontal"
-                    align="center"
-                    verticalAlign="bottom"
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+      {/* Demand Tab Content */}
+      {activeTab === "demand" && (
+        <div className="space-y-6">
+          {/* KPI Metrics row */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <KpiCard
+              title="Total Requests"
+              value={demandSummary?.totalRequests}
+              icon={<GitPullRequest className="h-6 w-6" />}
+              colorClass="bg-blue-500/10 text-blue-500"
+            />
+            <KpiCard
+              title="Active Requests"
+              value={demandSummary?.activeRequests}
+              icon={<Activity className="h-6 w-6" />}
+              colorClass="bg-amber-500/10 text-amber-500"
+            />
+            <KpiCard
+              title="Fulfilled Requests"
+              value={demandSummary?.fulfilledRequests}
+              icon={<CheckCircle className="h-6 w-6" />}
+              colorClass="bg-emerald-500/10 text-emerald-500"
+            />
+            <KpiCard
+              title="Cancelled Requests"
+              value={demandSummary?.cancelledRequests}
+              icon={<RotateCw className="h-6 w-6" />}
+              colorClass="bg-slate-500/10 text-slate-500"
+            />
           </div>
 
-          {/* Eligibility status Bar chart */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-6 rounded-2xl shadow-sm flex flex-col space-y-4">
-            <h2 className="text-lg font-bold tracking-tight">
-              Donor Eligibility Analytics
-            </h2>
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={eligibility}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="status" stroke="#94a3b8" fontSize={12} />
-                  <YAxis stroke="#94a3b8" fontSize={12} />
-                  <Tooltip />
-                  <Bar
-                    dataKey="count"
-                    name="Donors Count"
-                    radius={[8, 8, 0, 0]}
-                  >
-                    <Cell fill="#10b981" />
-                    <Cell fill="#f59e0b" />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Blood group demand chart */}
+            <AnalyticsCard
+              title="Request Distribution by Blood Group"
+              icon={<GitPullRequest className="h-5 w-5 text-slate-400" />}
+            >
+              {hasDemandGroup ? (
+                <ChartContainer heightClass="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={bloodGroupDemand}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis
+                        dataKey="bloodGroup"
+                        stroke="#94a3b8"
+                        fontSize={12}
+                      />
+                      <YAxis stroke="#94a3b8" fontSize={12} />
+                      <Tooltip />
+                      <Bar
+                        dataKey="requests"
+                        name="Requests Count"
+                        radius={[8, 8, 0, 0]}
+                      >
+                        {bloodGroupDemand.map((_, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <EmptyState message="No requests recorded yet to view demand patterns." />
+              )}
+            </AnalyticsCard>
+
+            {/* Demand Summary Card list */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-6 rounded-2xl shadow-sm space-y-4">
+              <h2 className="text-lg font-bold tracking-tight">
+                Demand Pipeline Stats
+              </h2>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                <div className="py-3 flex justify-between">
+                  <span className="text-slate-500">Total Pipeline</span>
+                  <span className="font-bold">
+                    {demandSummary?.totalRequests}
+                  </span>
+                </div>
+                <div className="py-3 flex justify-between">
+                  <span className="text-slate-500">
+                    Active Requests (Matched/Searching)
+                  </span>
+                  <span className="font-bold text-amber-500">
+                    {demandSummary?.activeRequests}
+                  </span>
+                </div>
+                <div className="py-3 flex justify-between">
+                  <span className="text-slate-500">
+                    Completed Fulfilled Requests
+                  </span>
+                  <span className="font-bold text-emerald-500">
+                    {demandSummary?.fulfilledRequests}
+                  </span>
+                </div>
+                <div className="py-3 flex justify-between">
+                  <span className="text-slate-500">
+                    Cancelled / Terminated Requests
+                  </span>
+                  <span className="font-bold text-slate-400">
+                    {demandSummary?.cancelledRequests}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

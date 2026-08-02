@@ -134,4 +134,61 @@ router.get(
   analyticsController.getMonthlyDonationTrends.bind(analyticsController)
 );
 
+/**
+ * @openapi
+ * /analytics/demand/summary:
+ *   get:
+ *     summary: Get overall blood demand summary
+ *     description: Returns request aggregate counts categorized by states (active, fulfilled, cancelled).
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Demand summary retrieved successfully
+ */
+router.get(
+  '/demand/summary',
+  requireAuth,
+  requireRole(...allowedRoles),
+  analyticsController.getDemandSummary.bind(analyticsController)
+);
+
+/**
+ * @openapi
+ * /analytics/demand/blood-groups:
+ *   get:
+ *     summary: Get blood group request demand distribution
+ *     description: Returns aggregate counts and percentages of blood requests by blood groups.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Blood group demand distribution retrieved successfully
+ */
+router.get(
+  '/demand/blood-groups',
+  requireAuth,
+  requireRole(...allowedRoles),
+  analyticsController.getBloodGroupDemand.bind(analyticsController)
+);
+
+/**
+ * @openapi
+ * /analytics/overview:
+ *   get:
+ *     summary: Get executive dashboard overview
+ *     description: Aggregates both donor count summary and blood demand summary indicators in a single call.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Executive overview summary retrieved successfully
+ */
+router.get(
+  '/overview',
+  requireAuth,
+  requireRole(...allowedRoles),
+  analyticsController.getExecutiveOverview.bind(analyticsController)
+);
+
 export default router;

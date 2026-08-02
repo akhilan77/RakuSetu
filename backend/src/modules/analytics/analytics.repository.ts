@@ -160,5 +160,64 @@ export class AnalyticsRepository {
 
     return trends;
   }
+
+  async getDemandSummary() {
+    const totalRequests = await prisma.bloodRequest.count();
+    const activeRequests = await prisma.bloodRequest.count({
+      where: {
+        status: {
+          in: ['CREATED', 'SEARCHING', 'MATCHED'],
+        },
+      },
+    });
+    const fulfilledRequests = await prisma.bloodRequest.count({
+      where: {
+        status: 'FULFILLED',
+      },
+    });
+    const cancelledRequests = await prisma.bloodRequest.count({
+      where: {
+        status: 'CANCELLED',
+      },
+    });
+
+    return {
+      totalRequests,
+      activeRequests,
+      fulfilledRequests,
+      cancelledRequests,
+    };
+  }
+
+  async getBloodGroupDemand() {
+    const totalRequests = await prisma.bloodRequest.count();
+    const groups = await prisma.bloodRequest.groupBy({
+      by: ['requiredBloodGroup'],
+      _count: {
+        id: true,
+      },
+    });
+
+    const allGroups = Object.values(BloodGroup);
+    return allGroups.map((bg) => {
+      const found = groups.find((g) => g.requiredBloodGroup === bg);
+      const count = found?._count.id || 0;
+      const percentage = totalRequests > 0 ? parseFloat(((count / totalRequests) * 100).toFixed(2)) : 0;
+      return {
+        bloodGroup: bg,
+        requests: count,
+        percentage,
+      };
+    });
+  }
+
+  async getExecutiveOverview() {
+    const donors = await this.getDonorSummary();
+    const requests = await this.getDemandSummary();
+    return {
+      donors,
+      requests,
+    };
+  }
 }
 export const analyticsRepository = new AnalyticsRepository();

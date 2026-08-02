@@ -34,11 +34,37 @@ export class AnalyticsCacheService {
   }
 
   async invalidateDemandAnalytics(): Promise<void> {
-    // Skeleton for future Day 8B integrations
+    let cursor = '0';
+    let totalDeleted = 0;
+    
+    do {
+      const [newCursor, keys] = await redis.scan(cursor, 'MATCH', 'analytics:demand:*', 'COUNT', 100);
+      cursor = newCursor;
+      
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        totalDeleted += keys.length;
+      }
+    } while (cursor !== '0');
+    
+    logger.info({ totalDeleted }, 'Invalidated demand analytics caches');
   }
 
   async invalidateOverviewAnalytics(): Promise<void> {
-    // Skeleton for future Day 8B integrations
+    let cursor = '0';
+    let totalDeleted = 0;
+    
+    do {
+      const [newCursor, keys] = await redis.scan(cursor, 'MATCH', 'analytics:overview:*', 'COUNT', 100);
+      cursor = newCursor;
+      
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        totalDeleted += keys.length;
+      }
+    } while (cursor !== '0');
+    
+    logger.info({ totalDeleted }, 'Invalidated overview analytics caches');
   }
 }
 export const analyticsCacheService = new AnalyticsCacheService();
