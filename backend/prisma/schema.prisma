@@ -1,0 +1,319 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  DONOR
+  RECIPIENT
+  HOSPITAL_STAFF
+  COORDINATOR
+  ADMIN
+}
+
+enum BloodGroup {
+  A_POS
+  A_NEG
+  B_POS
+  B_NEG
+  AB_POS
+  AB_NEG
+  O_POS
+  O_NEG
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum DonorStatus {
+  AVAILABLE
+  UNAVAILABLE
+  SNOOZED
+  INELIGIBLE
+  UNCONFIRMED
+}
+
+enum VerificationTier {
+  TIER_0
+  TIER_1
+}
+
+enum RequestStatus {
+  CREATED
+  SEARCHING
+  MATCHED
+  FULFILLED
+  EXPIRED
+  CANCELLED
+}
+
+enum MatchStatus {
+  NOTIFIED
+  RESPONDED
+  ACCEPTED
+  ARRIVED
+  DONATED
+  NO_SHOW
+  WITHDRAWN
+}
+
+enum Urgency {
+  CRITICAL
+  URGENT
+  PLANNED
+}
+
+enum NotificationChannel {
+  PUSH
+  SMS
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum InstitutionType {
+  HOSPITAL
+  BLOOD_BANK
+  NGO
+  COLLEGE
+}
+
+model User {
+  id              String    @id @default(uuid())
+  phone           String    @unique
+  email           String?   @unique
+  name            String
+  phoneVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  lastSeenAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  tokenVersion    Int       @default(1)
+
+  roles            UserRole[]
+  refreshTokens    RefreshToken[]
+  donorProfile     DonorProfile?
+  auditLogs        AuditLog[]
+  notificationLogs NotificationLog[]
+  bloodRequests    BloodRequest[]
+  matches          Match[]
+  donations        Donation[]
+  institutions     Institution[]     @relation("InstitutionStaff")
+
+  @@index([createdAt])
+}
+
+model UserRole {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([userId, role])
+  @@index([role])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  ipAddress  String?
+  userAgent  String?
+  deviceName String?
+  deviceId   String?
+  platform   String?
+  browser    String?
+  revoked    Boolean  @default(false)
+  lastUsedAt DateTime?
+
+  @@index([userId])
+}
+
+model DonorProfile {
+  id                     String                                @id @default(uuid())
+  userId                 String                                @unique
+  user                   User                                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bloodGroup             BloodGroup
+  gender                 Gender
+  dob                    DateTime
+  weight                 Float
+  status                 DonorStatus                           @default(AVAILABLE)
+  verificationTier       VerificationTier                      @default(TIER_0)
+  reliability            Int                                   @default(100)
+  latitude               Float
+  longitude              Float
+  location               Unsupported("geography(Point,4326)")?
+  lastDonatedAt          DateTime?
+  nextEligibleAt         DateTime?
+  lastAvailabilityUpdate DateTime?
+  lastLocationUpdate     DateTime?
+  createdAt              DateTime                              @default(now())
+  updatedAt              DateTime                              @updatedAt
+  deletedAt              DateTime?
+
+  @@index([status])
+  @@index([bloodGroup])
+  @@index([createdAt])
+  @@index([location], type: Gist)
+}
+
+model Institution {
+  id            String                                @id @default(uuid())
+  name          String
+  type          InstitutionType
+  phone         String
+  email         String?
+  address       String
+  googlePlaceId String?
+  latitude      Float
+  longitude     Float
+  location      Unsupported("geography(Point,4326)")?
+  inventory     Json?
+  createdAt     DateTime                              @default(now())
+  updatedAt     DateTime                              @updatedAt
+  deletedAt     DateTime?
+
+  staff         User[]         @relation("InstitutionStaff")
+  bloodRequests BloodRequest[]
+  donations     Donation[]
+
+  @@index([type])
+  @@index([createdAt])
+  @@index([location], type: Gist)
+}
+
+model BloodRequest {
+  id                 String                                @id @default(uuid())
+  recipientId        String
+  recipient          User                                  @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  institutionId      String?
+  institution        Institution?                          @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  requiredBloodGroup BloodGroup
+  unitsRequested     Int                                   @default(1)
+  unitsFulfilled     Int                                   @default(0)
+  urgency            Urgency                               @default(URGENT)
+  status             RequestStatus                         @default(CREATED)
+  hospitalName       String?
+  latitude           Float?
+  longitude          Float?
+  location           Unsupported("geography(Point,4326)")?
+  patientNote        String?
+  createdAt          DateTime                              @default(now())
+  updatedAt          DateTime                              @updatedAt
+  deletedAt          DateTime?
+
+  matches   Match[]
+  donations Donation[]
+
+  @@index([status])
+  @@index([requiredBloodGroup])
+  @@index([urgency])
+  @@index([createdAt])
+  @@index([location], type: Gist)
+}
+
+model Match {
+  id          String       @id @default(uuid())
+  requestId   String
+  request     BloodRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  donorId     String
+  donor       User         @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  status      MatchStatus  @default(NOTIFIED)
+  waveNumber  Int          @default(1)
+  notifiedAt  DateTime     @default(now())
+  respondedAt DateTime?
+  acceptedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  donations Donation[]
+
+  @@unique([requestId, donorId])
+  @@index([requestId])
+  @@index([donorId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Donation {
+  id             String        @id @default(uuid())
+  matchId        String?
+  match          Match?        @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  requestId      String?
+  request        BloodRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  donorId        String
+  donor          User          @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  institutionId  String?
+  institution    Institution?  @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  verified       Boolean       @default(false)
+  certificateUrl String?
+  donatedAt      DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  @@index([donorId])
+  @@index([institutionId])
+  @@index([verified])
+  @@index([createdAt])
+}
+
+model NotificationLog {
+  id               String              @id @default(uuid())
+  userId           String
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel          NotificationChannel
+  status           NotificationStatus  @default(PENDING)
+  template         String
+  payload          Json?
+  provider         String?
+  providerId       String?
+  providerResponse Json?
+  retryCount       Int                 @default(0)
+  failureReason    String?
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  failedAt         DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  entityType String
+  entityId   String
+  action     String
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

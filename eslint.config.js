@@ -9,7 +9,6 @@ module.exports = [
       "**/node_modules/**",
       "**/dist/**",
       "frontend/raktsetu-ui/**",
-      "backend/**",
       "packages/shared/dist/**",
     ],
   },
