@@ -1,6 +1,6 @@
 export const authKeys = {
-  otpLogin: (phone: string) => `otp:login:${phone}`,
-  otpAttempts: (phone: string) => `otp:attempts:${phone}`,
-  phoneRate: (phone: string) => `rate:otp:phone:${phone}`,
-  ipRate: (ip: string) => `rate:otp:ip:${ip}`,
+  OTP: (phone: string) => `otp:login:${phone}`,
+  OTP_ATTEMPTS: (phone: string) => `otp:attempts:${phone}`,
+  PHONE_RATE: (phone: string) => `rate:otp:phone:${phone}`,
+  IP_RATE: (ip: string) => `rate:otp:ip:${ip}`,
 };

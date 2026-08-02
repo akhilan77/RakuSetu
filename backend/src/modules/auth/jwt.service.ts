@@ -1,5 +1,5 @@
-import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { appConfig } from '../../config/app.js';
 import { ACCESS_TOKEN_EXPIRY } from './constants.js';
 
@@ -8,11 +8,7 @@ export class JWTService {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 
-  generateRandomToken(): string {
-    return crypto.randomBytes(32).toString('hex');
-  }
-
-  signAccessToken(payload: { userId: string; phone: string; roles: string[]; tokenVersion: number }): string {
+  generateAccessToken(payload: { userId: string; phone: string; roles: string[]; tokenVersion: number }): string {
     return jwt.sign(
       {
         sub: payload.userId,
@@ -23,6 +19,10 @@ export class JWTService {
       appConfig.jwt.secret,
       { expiresIn: ACCESS_TOKEN_EXPIRY }
     );
+  }
+
+  generateRefreshToken(): string {
+    return crypto.randomBytes(40).toString('hex');
   }
 
   verifyAccessToken(token: string): any {

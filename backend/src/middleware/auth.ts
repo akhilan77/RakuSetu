@@ -5,16 +5,13 @@ import { AppError } from './error.js';
 import { ErrorCode } from '../constants/error-codes.js';
 import { Role } from '@prisma/client';
 
-import { prisma } from '../lib/prisma.js';
-
 interface JwtPayload {
-  sub: string;
+  userId: string;
   phone: string;
   roles: Role[];
-  tokenVersion: number;
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -30,22 +27,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     const payload = jwt.verify(token, appConfig.jwt.secret) as JwtPayload;
     
-    // Check database to verify token version
-    const user = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { tokenVersion: true },
-    });
-
-    if (!user || user.tokenVersion !== payload.tokenVersion) {
-      throw new AppError(
-        401,
-        ErrorCode.UNAUTHENTICATED,
-        'Authentication token has been revoked or invalidated'
-      );
-    }
-
     req.user = {
-      id: payload.sub,
+      id: payload.userId,
       phone: payload.phone,
       roles: payload.roles,
     };

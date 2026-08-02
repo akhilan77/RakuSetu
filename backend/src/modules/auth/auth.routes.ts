@@ -3,15 +3,33 @@ import { authController } from './auth.controller.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validation.js';
 import { RequestOtpSchema, VerifyOtpSchema } from '../../validators/auth.validator.js';
+import { redisRateLimiter } from '../../middleware/rateLimit.js';
+import { authKeys } from './auth.keys.js';
 
 const router = Router();
+
+// Phone-level rate limiter: Max 3 OTP requests per phone number per hour
+const phoneRateLimiter = redisRateLimiter(
+  (req) => authKeys.PHONE_RATE(req.body.phone || 'unknown'),
+  3,
+  3600,
+  'Too many OTP requests for this phone number. Please try again in an hour.'
+);
+
+// IP-level rate limiter: Max 10 OTP requests per IP per hour
+const ipRateLimiter = redisRateLimiter(
+  (req) => authKeys.IP_RATE(req.ip || req.socket.remoteAddress || 'unknown'),
+  10,
+  3600,
+  'Too many OTP requests from this IP address. Please try again in an hour.'
+);
 
 /**
  * @openapi
  * /auth/request-otp:
  *   post:
  *     summary: Request login OTP
- *     description: Triggers an SMS verification dispatch (rate limited to 3/hr per phone, 10/hr per IP).
+ *     description: Triggers an SMS verification dispatch.
  *     requestBody:
  *       required: true
  *       content:
@@ -23,18 +41,25 @@ const router = Router();
  *             properties:
  *               phone:
  *                 type: string
+ *                 example: "+919999999999"
  *     responses:
  *       200:
  *         description: OTP dispatched
  */
-router.post('/request-otp', validate(RequestOtpSchema), authController.requestOtp.bind(authController));
+router.post(
+  '/request-otp',
+  validate(RequestOtpSchema),
+  phoneRateLimiter,
+  ipRateLimiter,
+  authController.requestOtp.bind(authController)
+);
 
 /**
  * @openapi
  * /auth/verify-otp:
  *   post:
  *     summary: Verify login OTP
- *     description: Confirms verification and returns access + refresh tokens. Sets secure HttpOnly cookie.
+ *     description: Confirms verification and returns a Bearer JWT token.
  *     requestBody:
  *       required: true
  *       content:
@@ -53,42 +78,58 @@ router.post('/request-otp', validate(RequestOtpSchema), authController.requestOt
  *       200:
  *         description: Login successful
  */
-router.post('/verify-otp', validate(VerifyOtpSchema), authController.verifyOtp.bind(authController));
+router.post(
+  '/verify-otp',
+  validate(VerifyOtpSchema),
+  authController.verifyOtp.bind(authController)
+);
 
 /**
  * @openapi
  * /auth/refresh:
  *   post:
- *     summary: Refresh access token
- *     description: Generates new access and rotated refresh tokens.
+ *     summary: Refresh tokens
+ *     description: Exchange an active refresh token for a new set.
  *     responses:
  *       200:
  *         description: Rotation successful
  */
-router.post('/refresh', authController.refresh.bind(authController));
+router.post(
+  '/refresh',
+  authController.refresh.bind(authController)
+);
 
 /**
  * @openapi
  * /auth/logout:
  *   post:
- *     summary: Logout user
- *     description: Revokes the refresh token and clears cookie.
+ *     summary: Log out
+ *     description: Invalidates active refresh token session.
  *     responses:
  *       200:
  *         description: Logout successful
  */
-router.post('/logout', authController.logout.bind(authController));
+router.post(
+  '/logout',
+  authController.logout.bind(authController)
+);
 
 /**
  * @openapi
  * /auth/me:
  *   get:
- *     summary: Get profile details
- *     description: Returns authenticated user record.
+ *     summary: Get logged-in user profile
+ *     description: Returns profile details for the authenticated user session.
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: User profile payload
+ *         description: Profile details returned
  */
-router.get('/me', requireAuth, authController.me.bind(authController));
+router.get(
+  '/me',
+  requireAuth,
+  authController.getMe.bind(authController)
+);
 
 export default router;

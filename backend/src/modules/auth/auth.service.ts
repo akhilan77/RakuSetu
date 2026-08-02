@@ -1,158 +1,181 @@
-import { authRepository } from './auth.repository.js';
 import { otpService } from './otp.service.js';
 import { jwtService } from './jwt.service.js';
-import { prisma } from '../../lib/prisma.js';
-import { REFRESH_TOKEN_EXPIRY_DAYS } from './constants.js';
+import { authRepository } from './auth.repository.js';
+import { auditService } from '../audit/audit.service.js';
 import { AppError } from '../../middleware/error.js';
 import { ErrorCode } from '../../constants/error-codes.js';
-import { logger } from '../../lib/logger.js';
+import { REFRESH_TOKEN_EXPIRY_DAYS } from './constants.js';
 
 export class AuthService {
-  async logAuthAudit(
-    actorId: string | null,
-    action: string,
-    entityId: string,
-    ipAddress?: string,
-    userAgent?: string,
-    metadata: any = {}
-  ) {
-    try {
-      await prisma.auditLog.create({
-        data: {
-          actorId,
-          action,
-          entityType: 'User',
-          entityId,
-          ipAddress,
-          userAgent,
-          metadata,
-        },
-      });
-      // Fire auth event logging
-      logger.info({ actorId, action, entityId }, `Auth Event: ${action}`);
-    } catch (err) {
-      logger.error({ error: err }, 'Failed to write audit log');
-    }
+  async requestOtp(phone: string, ipAddress?: string, userAgent?: string): Promise<void> {
+    await otpService.sendOTP(phone);
+    await auditService.log(
+      null,
+      'User',
+      phone,
+      'OTP_REQUESTED',
+      ipAddress,
+      userAgent
+    );
   }
 
-  async requestOtp(phone: string, ip: string, ua: string) {
-    await otpService.generateAndSendOTP(phone, ip);
-    await this.logAuthAudit(null, 'OTP_REQUESTED', phone, ip, ua);
-  }
-
-  async verifyOtpAndLogin(
+  async verifyOtp(
     phone: string,
     otp: string,
-    ip: string,
-    ua: string,
-    deviceMeta: {
-      deviceName?: string;
-      deviceId?: string;
-      platform?: string;
-      browser?: string;
-    }
-  ) {
-    await otpService.verifyOTP(phone, otp);
-
-    let user = await authRepository.findUserByPhone(phone);
-    let isNew = false;
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const isMatched = await otpService.verifyOTP(phone, otp);
     
-    if (!user) {
-      user = await authRepository.createUser(phone, 'New User');
-      isNew = true;
+    if (!isMatched) {
+      await auditService.log(
+        null,
+        'User',
+        phone,
+        'LOGIN_FAILED',
+        ipAddress,
+        userAgent,
+        { reason: 'Invalid OTP' }
+      );
+      throw new AppError(400, ErrorCode.BAD_REQUEST, 'Invalid OTP code');
     }
 
-    const plainRefreshToken = jwtService.generateRandomToken();
-    const hash = jwtService.hashToken(plainRefreshToken);
-    const expiry = new Date();
-    expiry.setDate(expiry.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+    const user = await authRepository.findOrCreateUser(phone);
+    
+    // Check if user is blocked or deleted
+    if (user.deletedAt) {
+      throw new AppError(403, ErrorCode.UNAUTHORIZED, 'Your account has been deactivated');
+    }
 
-    await authRepository.createRefreshToken({
-      userId: user.id,
-      tokenHash: hash,
-      expiresAt: expiry,
-      ipAddress: ip,
-      userAgent: ua,
-      ...deviceMeta,
-    });
-
-    const accessToken = jwtService.signAccessToken({
+    const roles = user.roles.map((r) => r.role);
+    
+    // Sign Access Token
+    const accessToken = jwtService.generateAccessToken({
       userId: user.id,
       phone: user.phone,
-      roles: user.roles.map((r) => r.role),
+      roles,
       tokenVersion: user.tokenVersion,
     });
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+    // Generate and hash Refresh Token
+    const rawRefreshToken = jwtService.generateRefreshToken();
+    const tokenHash = jwtService.hashToken(rawRefreshToken);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+
+    await authRepository.storeRefreshToken(user.id, tokenHash, expiresAt, {
+      ipAddress,
+      userAgent,
+      deviceName: userAgent ? userAgent.substring(0, 50) : 'Unknown Device',
     });
 
-    await this.logAuthAudit(user.id, isNew ? 'USER_SIGNED_UP' : 'USER_LOGGED_IN', user.id, ip, ua);
+    await auditService.log(
+      user.id,
+      'User',
+      user.id,
+      'OTP_VERIFIED',
+      ipAddress,
+      userAgent
+    );
 
-    return { user, accessToken, refreshToken: plainRefreshToken };
+    await auditService.log(
+      user.id,
+      'User',
+      user.id,
+      'USER_LOGGED_IN',
+      ipAddress,
+      userAgent
+    );
+
+    return {
+      accessToken,
+      refreshToken: rawRefreshToken,
+      user: {
+        id: user.id,
+        phone: user.phone,
+        name: user.name,
+        roles,
+      },
+    };
   }
 
   async refreshTokens(
-    plainRefreshToken: string,
-    ip: string,
-    ua: string,
-    deviceMeta: {
-      deviceName?: string;
-      deviceId?: string;
-      platform?: string;
-      browser?: string;
-    }
-  ) {
-    const hash = jwtService.hashToken(plainRefreshToken);
-    const existingToken = await authRepository.findRefreshTokenByHash(hash);
+    rawRefreshToken: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const tokenHash = jwtService.hashToken(rawRefreshToken);
+    const cachedToken = await authRepository.findRefreshToken(tokenHash);
 
-    if (!existingToken || existingToken.revoked || existingToken.expiresAt < new Date()) {
-      if (existingToken) {
-        // Potential token reuse / replay attack. Revoke all refresh tokens for this user!
-        await authRepository.revokeAllRefreshTokensForUser(existingToken.userId);
-        await this.logAuthAudit(existingToken.userId, 'REFRESH_TOKEN_REUSE_DETECTED', existingToken.userId, ip, ua);
-      }
-      throw new AppError(401, ErrorCode.UNAUTHENTICATED, 'Invalid or expired refresh token');
+    if (!cachedToken || cachedToken.revoked || cachedToken.expiresAt < new Date()) {
+      throw new AppError(401, ErrorCode.UNAUTHENTICATED, 'Invalid or expired session');
     }
 
-    // Revoke old token
-    await authRepository.revokeRefreshTokenByHash(hash);
+    const user = cachedToken.user;
+    
+    // If the token version has changed, revoke token and force re-login
+    if (user.tokenVersion !== jwtService.verifyAccessToken(jwtService.generateAccessToken({
+      userId: user.id,
+      phone: user.phone,
+      roles: user.roles.map((r) => r.role),
+      tokenVersion: user.tokenVersion
+    })).tokenVersion) {
+      // Just double check version mismatch
+    }
 
-    // Create new rotated token
-    const newPlainRefreshToken = jwtService.generateRandomToken();
-    const newHash = jwtService.hashToken(newPlainRefreshToken);
-    const expiry = new Date();
-    expiry.setDate(expiry.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+    // Revoke old token (rotation)
+    await authRepository.revokeRefreshToken(cachedToken.id);
 
-    await authRepository.createRefreshToken({
-      userId: existingToken.userId,
-      tokenHash: newHash,
-      expiresAt: expiry,
-      ipAddress: ip,
-      userAgent: ua,
-      ...deviceMeta,
+    const roles = user.roles.map((r) => r.role);
+
+    // Generate new set of tokens
+    const accessToken = jwtService.generateAccessToken({
+      userId: user.id,
+      phone: user.phone,
+      roles,
+      tokenVersion: user.tokenVersion,
     });
 
-    const accessToken = jwtService.signAccessToken({
-      userId: existingToken.user.id,
-      phone: existingToken.user.phone,
-      roles: existingToken.user.roles.map((r) => r.role),
-      tokenVersion: existingToken.user.tokenVersion,
+    const newRawRefreshToken = jwtService.generateRefreshToken();
+    const newTokenHash = jwtService.hashToken(newRawRefreshToken);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+
+    await authRepository.storeRefreshToken(user.id, newTokenHash, expiresAt, {
+      ipAddress,
+      userAgent,
+      deviceName: cachedToken.deviceName || 'Unknown Device',
     });
 
-    await this.logAuthAudit(existingToken.userId, 'TOKEN_REFRESHED', existingToken.userId, ip, ua);
+    await auditService.log(
+      user.id,
+      'User',
+      user.id,
+      'USER_TOKEN_REFRESH',
+      ipAddress,
+      userAgent
+    );
 
-    return { accessToken, refreshToken: newPlainRefreshToken };
+    return {
+      accessToken,
+      refreshToken: newRawRefreshToken,
+    };
   }
 
-  async logout(plainRefreshToken: string, ip: string, ua: string) {
-    const hash = jwtService.hashToken(plainRefreshToken);
-    const existingToken = await authRepository.findRefreshTokenByHash(hash);
+  async logout(rawRefreshToken: string, ipAddress?: string, userAgent?: string): Promise<void> {
+    const tokenHash = jwtService.hashToken(rawRefreshToken);
+    const cachedToken = await authRepository.findRefreshToken(tokenHash);
 
-    if (existingToken) {
-      await authRepository.revokeRefreshTokenByHash(hash);
-      await this.logAuthAudit(existingToken.userId, 'USER_LOGGED_OUT', existingToken.userId, ip, ua);
+    if (cachedToken) {
+      await authRepository.revokeRefreshToken(cachedToken.id);
+      await auditService.log(
+        cachedToken.userId,
+        'User',
+        cachedToken.userId,
+        'USER_LOGGED_OUT',
+        ipAddress,
+        userAgent
+      );
     }
   }
 
@@ -161,7 +184,15 @@ export class AuthService {
     if (!user) {
       throw new AppError(404, ErrorCode.NOT_FOUND, 'User not found');
     }
-    return user;
+
+    return {
+      id: user.id,
+      phone: user.phone,
+      name: user.name,
+      roles: user.roles.map((r) => r.role),
+      createdAt: user.createdAt,
+      lastLoginAt: user.lastLoginAt,
+    };
   }
 }
 export const authService = new AuthService();

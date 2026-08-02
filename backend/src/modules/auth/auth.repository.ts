@@ -16,17 +16,55 @@ export class AuthRepository {
     });
   }
 
-  async createUser(phone: string, defaultName: string) {
+  async findOrCreateUser(phone: string) {
+    const existing = await this.findUserByPhone(phone);
+    if (existing) return existing;
+
     return prisma.user.create({
       data: {
         phone,
-        name: defaultName,
-        phoneVerifiedAt: new Date(),
+        name: 'New User',
         roles: {
           create: [{ role: Role.DONOR }],
         },
       },
       include: { roles: true },
+    });
+  }
+
+  async storeRefreshToken(
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date,
+    metadata: { deviceName?: string; ipAddress?: string; userAgent?: string }
+  ) {
+    return prisma.refreshToken.create({
+      data: {
+        userId,
+        token: tokenHash,
+        expiresAt,
+        deviceName: metadata.deviceName,
+        ipAddress: metadata.ipAddress,
+        userAgent: metadata.userAgent,
+      },
+    });
+  }
+
+  async findRefreshToken(tokenHash: string) {
+    return prisma.refreshToken.findUnique({
+      where: { token: tokenHash },
+      include: {
+        user: {
+          include: { roles: true },
+        },
+      },
+    });
+  }
+
+  async revokeRefreshToken(id: string) {
+    return prisma.refreshToken.update({
+      where: { id },
+      data: { revoked: true },
     });
   }
 
@@ -38,43 +76,6 @@ export class AuthRepository {
           increment: 1,
         },
       },
-    });
-  }
-
-  async createRefreshToken(data: {
-    userId: string;
-    tokenHash: string;
-    expiresAt: Date;
-    ipAddress?: string;
-    userAgent?: string;
-    deviceName?: string;
-    deviceId?: string;
-    platform?: string;
-    browser?: string;
-  }) {
-    return prisma.refreshToken.create({
-      data,
-    });
-  }
-
-  async findRefreshTokenByHash(tokenHash: string) {
-    return prisma.refreshToken.findUnique({
-      where: { tokenHash },
-      include: { user: { include: { roles: true } } },
-    });
-  }
-
-  async revokeRefreshTokenByHash(tokenHash: string) {
-    return prisma.refreshToken.update({
-      where: { tokenHash },
-      data: { revoked: true },
-    });
-  }
-
-  async revokeAllRefreshTokensForUser(userId: string) {
-    return prisma.refreshToken.updateMany({
-      where: { userId },
-      data: { revoked: true },
     });
   }
 }

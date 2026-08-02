@@ -25,6 +25,7 @@ const envSchema = z.object({
   MINIO_SECRET_KEY: z.string().default('minioadmin123'),
   MINIO_USE_SSL: z.preprocess((val) => val === 'true', z.boolean()).default(false),
   MINIO_BUCKET_NAME: z.string().default('raktsetu-bucket'),
+  OTP_PROVIDER: z.enum(['console', 'msg91']).default('console'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

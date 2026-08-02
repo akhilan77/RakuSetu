@@ -2,78 +2,65 @@ import crypto from 'crypto';
 import { redis } from '../../lib/redis.js';
 import { authKeys } from './auth.keys.js';
 import { OTP_EXPIRY, MAX_ATTEMPTS } from './constants.js';
-import { OTPProviderFactory } from './providers/index.js';
+import { OTPProviderFactory } from './providers/otp.provider.js';
 import { AppError } from '../../middleware/error.js';
 import { ErrorCode } from '../../constants/error-codes.js';
 
 export class OTPService {
-  async checkRateLimits(phone: string, ip: string): Promise<void> {
-    const phoneKey = authKeys.phoneRate(phone);
-    const ipKey = authKeys.ipRate(ip);
+  async sendOTP(phone: string): Promise<void> {
+    const otpKey = authKeys.OTP(phone);
+    const attemptsKey = authKeys.OTP_ATTEMPTS(phone);
 
-    const phoneCount = await redis.get(phoneKey);
-    if (phoneCount && parseInt(phoneCount, 10) >= 3) {
-      throw new AppError(429, ErrorCode.VALIDATION_ERROR, 'Too many OTP requests for this phone number. Try again in an hour.');
-    }
-
-    const ipCount = await redis.get(ipKey);
-    if (ipCount && parseInt(ipCount, 10) >= 10) {
-      throw new AppError(429, ErrorCode.VALIDATION_ERROR, 'Too many OTP requests from this IP address. Try again in an hour.');
-    }
-
-    // Increment and set TTL
-    const nextPhone = await redis.incr(phoneKey);
-    if (nextPhone === 1) await redis.expire(phoneKey, 3600);
-
-    const nextIp = await redis.incr(ipKey);
-    if (nextIp === 1) await redis.expire(ipKey, 3600);
-  }
-
-  async generateAndSendOTP(phone: string, ip: string): Promise<void> {
-    await this.checkRateLimits(phone, ip);
-
-    const otpKey = authKeys.otpLogin(phone);
-    const attemptsKey = authKeys.otpAttempts(phone);
-
+    // Idempotent OTP: reuse existing unexpired OTP if present
     let otp = await redis.get(otpKey);
-    
-    if (!otp) {
+    let ttl = await redis.ttl(otpKey);
+
+    if (!otp || ttl <= 0) {
       // Generate secure 6-digit OTP
       otp = crypto.randomInt(100000, 999999).toString();
       await redis.set(otpKey, otp, 'EX', OTP_EXPIRY);
-      await redis.set(attemptsKey, '0', 'EX', OTP_EXPIRY);
+      await redis.set(attemptsKey, 0, 'EX', OTP_EXPIRY);
     }
 
     const provider = OTPProviderFactory.getProvider();
     await provider.sendOTP(phone, otp);
   }
 
-  async verifyOTP(phone: string, inputOtp: string): Promise<void> {
-    const otpKey = authKeys.otpLogin(phone);
-    const attemptsKey = authKeys.otpAttempts(phone);
+  async verifyOTP(phone: string, inputOtp: string): Promise<boolean> {
+    const otpKey = authKeys.OTP(phone);
+    const attemptsKey = authKeys.OTP_ATTEMPTS(phone);
 
-    const otp = await redis.get(otpKey);
-    if (!otp) {
-      throw new AppError(401, ErrorCode.UNAUTHENTICATED, 'OTP expired or not requested');
+    const attemptsStr = await redis.get(attemptsKey);
+    if (attemptsStr === null) {
+      throw new AppError(400, ErrorCode.BAD_REQUEST, 'OTP has expired or is invalid');
     }
 
-    // Check attempts limit
-    const attemptsVal = await redis.get(attemptsKey);
-    const attempts = attemptsVal ? parseInt(attemptsVal, 10) : 0;
+    const attempts = parseInt(attemptsStr, 10);
     if (attempts >= MAX_ATTEMPTS) {
       await redis.del(otpKey);
       await redis.del(attemptsKey);
-      throw new AppError(401, ErrorCode.UNAUTHENTICATED, 'Too many failed verification attempts. OTP has been invalidated.');
+      throw new AppError(400, ErrorCode.BAD_REQUEST, 'Too many verification attempts. OTP has been invalidated.');
     }
 
-    if (otp !== inputOtp) {
-      await redis.incr(attemptsKey);
-      throw new AppError(401, ErrorCode.UNAUTHENTICATED, 'Invalid verification code');
+    const cachedOtp = await redis.get(otpKey);
+    if (!cachedOtp) {
+      throw new AppError(400, ErrorCode.BAD_REQUEST, 'OTP has expired or is invalid');
     }
 
-    // Clear OTP and attempts on success
+    if (cachedOtp !== inputOtp) {
+      const currentAttempts = await redis.incr(attemptsKey);
+      if (currentAttempts >= MAX_ATTEMPTS) {
+        await redis.del(otpKey);
+        await redis.del(attemptsKey);
+        throw new AppError(400, ErrorCode.BAD_REQUEST, 'Too many verification attempts. OTP has been invalidated.');
+      }
+      return false;
+    }
+
+    // Clear OTP states immediately upon successful match
     await redis.del(otpKey);
     await redis.del(attemptsKey);
+    return true;
   }
 }
 export const otpService = new OTPService();

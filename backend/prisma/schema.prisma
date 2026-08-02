@@ -130,20 +130,18 @@ model UserRole {
 
 model RefreshToken {
   id        String   @id @default(uuid())
-  tokenHash String   @unique
+  token     String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   createdAt DateTime @default(now())
 
+  // Fingerprinting & Rotation
+  deviceName String?
   ipAddress  String?
   userAgent  String?
-  deviceName String?
-  deviceId   String?
-  platform   String?
-  browser    String?
   revoked    Boolean  @default(false)
-  lastUsedAt DateTime?
+  lastUsedAt DateTime? @default(now())
 
   @@index([userId])
 }
