@@ -15,7 +15,7 @@ interface RequestOptions extends RequestInit {
 async function getAccessToken(): Promise<string | undefined> {
   if (isServer) {
     try {
-      const session = (await auth()) as any;
+      const session = (await auth()) as { accessToken?: string } | null;
       return session?.accessToken;
     } catch (error) {
       console.error("Failed to get server session:", error);
@@ -23,7 +23,7 @@ async function getAccessToken(): Promise<string | undefined> {
     }
   } else {
     try {
-      const session = (await getSession()) as any;
+      const session = (await getSession()) as { accessToken?: string } | null;
       return session?.accessToken;
     } catch (error) {
       console.error("Failed to get client session:", error);

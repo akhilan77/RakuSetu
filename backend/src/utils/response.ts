@@ -1,10 +1,11 @@
 import { Response } from 'express';
 
-export function ok(res: Response, data: any = {}, message?: string) {
+export function ok(res: Response, data: any = {}, message?: string, meta?: any) {
   return res.status(200).json({
     success: true,
     data,
     message,
+    meta,
   });
 }
 

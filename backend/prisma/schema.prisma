@@ -167,8 +167,14 @@ model DonorProfile {
   createdAt              DateTime                              @default(now())
   updatedAt              DateTime                              @updatedAt
   deletedAt              DateTime?
+  city                   String?
+  district               String?
+  state                  String?
 
   @@index([status])
+  @@index([city])
+  @@index([district])
+  @@index([state])
   @@index([bloodGroup])
   @@index([createdAt])
   @@index([location], type: Gist)

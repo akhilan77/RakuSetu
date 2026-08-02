@@ -1,6 +1,33 @@
-import NextAuth from "next-auth";
+import NextAuth, { User, Session } from "next-auth";
+import { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import "./auth.d.ts";
+
+interface CustomUser extends User {
+  id?: string;
+  phone?: string;
+  roles?: string[];
+  accessToken?: string;
+}
+
+interface CustomToken extends JWT {
+  id?: string;
+  phone?: string;
+  roles?: string[];
+  accessToken?: string;
+}
+
+interface CustomSession extends Session {
+  accessToken?: string;
+  user?: {
+    id?: string;
+    phone?: string;
+    roles?: string[];
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  };
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -32,10 +59,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
-          const data = await res.json();
+          const data = (await res.json()) as {
+            token: string;
+            user: {
+              id: string;
+              name: string;
+              phone: string;
+              roles: string[];
+            };
+          };
 
-          // We expect data to have a token and user structure, e.g.:
-          // { token: string, user: { id: string, name: string, phone: string, roles: string[] } }
           if (data && data.token && data.user) {
             return {
               id: data.user.id,
@@ -59,19 +92,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   callbacks: {
     async jwt({ token, user }) {
-      const u = user as any;
-      const t = token as any;
+      const u = user as CustomUser;
+      const t = token as CustomToken;
       if (u) {
         t.accessToken = u.accessToken;
         t.id = u.id;
         t.phone = u.phone;
         t.roles = u.roles;
       }
-      return t;
+      return t as JWT;
     },
     async session({ session, token }) {
-      const s = session as any;
-      const t = token as any;
+      const s = session as CustomSession;
+      const t = token as CustomToken;
       if (t) {
         s.accessToken = t.accessToken;
         if (s.user) {
@@ -80,7 +113,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           s.user.roles = t.roles;
         }
       }
-      return s;
+      return s as unknown as Session;
     },
   },
   pages: {
