@@ -1,6 +1,7 @@
 import { donorRepository } from './donor.repository.js';
 import { eligibilityService } from './eligibility.service.js';
 import { analyticsCacheService } from '../analytics/cache/analytics.cache.js';
+import { auditService } from '../audit/audit.service.js';
 import { CreateDonorInput, UpdateDonorInput } from './donor.types.js';
 import { AppError } from '../../middleware/error.js';
 import { ErrorCode } from '../../constants/error-codes.js';
@@ -26,6 +27,13 @@ export class DonorService {
         } as unknown as UpdateDonorInput);
       }
 
+      // Audit Log for mutating action
+      await auditService.log(userId, 'DonorProfile', profile.id, 'DONOR_PROFILE_REGISTERED', undefined, undefined, {
+        city: data.city,
+        bloodGroup: data.bloodGroup,
+        eligibility,
+      });
+
       // 2. Selectively invalidate analytics caches
       await analyticsCacheService.invalidateDonorAnalytics();
       await analyticsCacheService.invalidateOverviewAnalytics();
@@ -38,6 +46,7 @@ export class DonorService {
         donorNumberInCity,
       };
     } catch (error: any) {
+
       // 3. Database unique constraint violation handler (P2002)
       if (error.code === 'P2002') {
         throw new AppError(409, ErrorCode.CONFLICT, 'User already has a registered donor profile');

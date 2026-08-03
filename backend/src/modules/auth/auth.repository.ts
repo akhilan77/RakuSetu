@@ -17,12 +17,20 @@ export class AuthRepository {
   }
 
   async findUserByPhoneOrEmail(identifier: string) {
-    // Heuristic: if it contains '@' treat as email, otherwise phone
-    if (identifier.includes('@')) {
-      return this.findUserByEmail(identifier);
+    const trimmed = identifier.trim();
+    if (trimmed.includes('@')) {
+      return this.findUserByEmail(trimmed);
     }
-    return this.findUserByPhone(identifier);
+    
+    // Normalize phone number (if 10 digits without +91, prepend +91)
+    const phone = trimmed.startsWith('+') ? trimmed : `+91${trimmed.replace(/\D/g, '')}`;
+    const user = await this.findUserByPhone(phone);
+    if (user) return user;
+
+    // Fallback search with raw string
+    return this.findUserByPhone(trimmed);
   }
+
 
   async findUserById(id: string) {
     return prisma.user.findUnique({

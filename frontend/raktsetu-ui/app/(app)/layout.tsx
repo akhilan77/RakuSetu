@@ -28,6 +28,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const sessionResult = useSession();
   const session = sessionResult?.data;
+  const userRoles: string[] =
+    (session?.user as { roles?: string[] })?.roles || [];
+
+  const roleNavigationItems = [
+    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { name: "Home", href: "/home", icon: Home },
+    { name: "Search", href: "/search", icon: Search },
+    { name: "SOS Request", href: "/request", icon: AlertOctagon, isSos: true },
+    { name: "History", href: "/history", icon: History },
+    { name: "Profile", href: "/profile", icon: User },
+    ...(userRoles.includes("ADMIN")
+      ? [
+          {
+            name: "Admin Console",
+            href: "/admin-dashboard",
+            icon: LayoutDashboard,
+          },
+        ]
+      : []),
+    ...(userRoles.includes("HOSPITAL_STAFF") || userRoles.includes("ADMIN")
+      ? [{ name: "Hospital Portal", href: "/hospital", icon: Home }]
+      : []),
+  ];
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -46,7 +69,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Sidebar Navigation */}
         <nav className="flex-1 px-4 py-6 space-y-1">
-          {navigationItems.map((item) => {
+          {roleNavigationItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
             return (
