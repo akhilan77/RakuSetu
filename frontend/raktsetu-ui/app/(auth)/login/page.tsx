@@ -191,7 +191,6 @@ function OtpTab() {
 
 // ─── Password Tab ─────────────────────────────────────────────────────────────
 function PasswordTab() {
-  const router = useRouter();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -201,17 +200,28 @@ function PasswordTab() {
   const handleLogin = () => {
     setError("");
     startTransition(async () => {
-      const result = await signIn("credentials", {
-        identifier,
-        password,
-        redirect: false,
-      });
+      try {
+        const result = await signIn("credentials", {
+          identifier,
+          password,
+          redirect: false,
+          callbackUrl: "/dashboard",
+        });
 
-      if (result?.error) {
-        setError("Invalid phone/email or password.");
-      } else {
-        router.push("/dashboard");
-        router.refresh();
+        if (result?.error) {
+          setError("Invalid phone/email or password.");
+        } else if (result?.url) {
+          window.location.href = result.url;
+        } else {
+          window.location.href = "/dashboard";
+        }
+      } catch (err: unknown) {
+        const authErr = err as { type?: string };
+        if (authErr?.type === "CredentialsSignin") {
+          setError("Invalid phone/email or password.");
+        } else {
+          window.location.href = "/dashboard";
+        }
       }
     });
   };

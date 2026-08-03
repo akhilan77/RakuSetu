@@ -58,8 +58,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
       401,
       ErrorCode.UNAUTHENTICATED,
       'Invalid or expired authentication token'
+    );
   }
 }
+
 
 export function requireRole(...allowedRoles: Role[]) {
   return (req: Request, _res: Response, next: NextFunction) => {

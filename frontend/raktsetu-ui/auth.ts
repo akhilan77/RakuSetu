@@ -115,6 +115,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           });
 
           if (!res.ok) {
+            const errBody = await res.text().catch(() => "");
+            console.error(
+              `[NextAuth Authorize Failed] Status: ${res.status}, Body: ${errBody}`,
+            );
             return null;
           }
 
