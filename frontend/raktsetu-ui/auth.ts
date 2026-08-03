@@ -1,7 +1,6 @@
 import NextAuth, { User, Session } from "next-auth";
 import { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
-import "./auth.d.ts";
 
 interface CustomUser extends User {
   id?: string;
@@ -32,6 +31,7 @@ interface CustomSession extends Session {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     CredentialsProvider({
+      id: "otp",
       name: "OTP",
       credentials: {
         phone: { label: "Phone Number", type: "text" },
@@ -43,10 +43,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         const backendUrl =
-          process.env.BACKEND_API_URL || "http://localhost:5000";
+          process.env.BACKEND_API_URL || "http://localhost:3000";
 
         try {
-          const res = await fetch(`${backendUrl}/auth/verify-otp`, {
+          const res = await fetch(`${backendUrl}/api/v1/auth/verify-otp`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -61,32 +61,94 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
           const data = (await res.json()) as {
             token: string;
-            user: {
-              id: string;
-              name: string;
-              phone: string;
-              roles: string[];
+            data: {
+              accessToken: string;
+              user: {
+                id: string;
+                name: string;
+                phone: string;
+                roles: string[];
+              };
             };
           };
 
-          if (data && data.token && data.user) {
+          if (data?.data?.accessToken && data?.data?.user) {
             return {
-              id: data.user.id,
-              name: data.user.name,
-              phone: data.user.phone,
-              roles: data.user.roles,
-              accessToken: data.token,
+              id: data.data.user.id,
+              name: data.data.user.name,
+              phone: data.data.user.phone,
+              roles: data.data.user.roles,
+              accessToken: data.data.accessToken,
             };
           }
 
           return null;
         } catch (error) {
-          console.error("Authorization error:", error);
+          console.error("OTP authorization error:", error);
+          return null;
+        }
+      },
+    }),
+    CredentialsProvider({
+      id: "credentials",
+      name: "Password",
+      credentials: {
+        identifier: { label: "Phone or Email", type: "text" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.identifier || !credentials?.password) {
+          return null;
+        }
+
+        const backendUrl =
+          process.env.BACKEND_API_URL || "http://localhost:3000";
+
+        try {
+          const res = await fetch(`${backendUrl}/api/v1/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              identifier: credentials.identifier,
+              password: credentials.password,
+            }),
+          });
+
+          if (!res.ok) {
+            return null;
+          }
+
+          const data = (await res.json()) as {
+            data: {
+              accessToken: string;
+              user: {
+                id: string;
+                name: string;
+                phone: string;
+                roles: string[];
+              };
+            };
+          };
+
+          if (data?.data?.accessToken && data?.data?.user) {
+            return {
+              id: data.data.user.id,
+              name: data.data.user.name,
+              phone: data.data.user.phone,
+              roles: data.data.user.roles,
+              accessToken: data.data.accessToken,
+            };
+          }
+
+          return null;
+        } catch (error) {
+          console.error("Password authorization error:", error);
           return null;
         }
       },
     }),
   ],
+
   session: {
     strategy: "jwt",
   },

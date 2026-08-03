@@ -84,5 +84,16 @@ export class AuthController {
     const user = await authService.getMe(userId);
     return ok(res, { user });
   }
+
+  async login(req: Request, res: Response) {
+    const { identifier, password } = req.body;
+    const ipAddress = req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+
+    const result = await authService.loginWithPassword(identifier, password, ipAddress, userAgent);
+    setRefreshTokenCookie(res, result.refreshToken);
+    return ok(res, result, 'Login successful');
+  }
 }
 export const authController = new AuthController();
+

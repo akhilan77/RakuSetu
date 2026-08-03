@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authController } from './auth.controller.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validation.js';
-import { RequestOtpSchema, VerifyOtpSchema } from '../../validators/auth.validator.js';
+import { RequestOtpSchema, VerifyOtpSchema, LoginSchema } from '../../validators/auth.validator.js';
 import { redisRateLimiter } from '../../middleware/rateLimit.js';
 import { authKeys } from './auth.keys.js';
 
@@ -116,6 +116,40 @@ router.post(
 
 /**
  * @openapi
+ * /auth/login:
+ *   post:
+ *     summary: Password-based login (fallback)
+ *     description: Login with phone/email + password. Returns a Bearer JWT token.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - identifier
+ *               - password
+ *             properties:
+ *               identifier:
+ *                 type: string
+ *                 description: Phone number or email address
+ *               password:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *       401:
+ *         description: Invalid credentials
+ */
+router.post(
+  '/login',
+  validate(LoginSchema),
+  authController.login.bind(authController)
+);
+
+/**
+ * @openapi
  * /auth/me:
  *   get:
  *     summary: Get logged-in user profile
@@ -133,3 +167,4 @@ router.get(
 );
 
 export default router;
+

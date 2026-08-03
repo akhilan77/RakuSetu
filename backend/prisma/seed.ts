@@ -1,9 +1,15 @@
+import bcrypt from 'bcryptjs';
 import { PrismaClient, Role, BloodGroup, Gender, DonorStatus, VerificationTier, InstitutionType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+
 async function main() {
   console.log('🌱 Starting database seed...');
+
+  // Pre-hash passwords (bcrypt, cost 12)
+  const adminPassword = await bcrypt.hash('Admin@123', 12);
+  const donorPassword = await bcrypt.hash('Donor@123', 12);
 
   // 1. Clean existing records
   console.log('Clearing old records...');
@@ -25,6 +31,7 @@ async function main() {
       phone: '+919999999999',
       email: 'admin@raktsetu.org',
       name: 'RaktSetu Admin',
+      passwordHash: adminPassword,
       phoneVerifiedAt: new Date(),
       roles: {
         create: [
@@ -34,6 +41,42 @@ async function main() {
       }
     }
   });
+
+  // 2b. Create a named test Donor with password credentials
+  console.log('Creating test donor with password credentials...');
+  const testDonorUser = await prisma.user.create({
+    data: {
+      phone: '+919800000000',
+      email: 'donor@raktsetu.org',
+      name: 'Test Donor',
+      passwordHash: donorPassword,
+      phoneVerifiedAt: new Date(),
+      roles: {
+        create: [{ role: Role.DONOR }]
+      }
+    }
+  });
+
+  const testDonorProfile = await prisma.donorProfile.create({
+    data: {
+      userId: testDonorUser.id,
+      bloodGroup: BloodGroup.O_POS,
+      gender: Gender.MALE,
+      dob: new Date(1995, 5, 15),
+      status: DonorStatus.AVAILABLE,
+      verificationTier: VerificationTier.TIER_1,
+      nextEligibleAt: new Date(),
+      latitude: 12.9272,
+      longitude: 79.1304,
+      weight: 70,
+    }
+  });
+  await prisma.$executeRawUnsafe(
+    `UPDATE "DonorProfile" SET location = ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography WHERE id = $3`,
+    79.1304, 12.9272, testDonorProfile.id
+  );
+
+
 
   // 3. Create Hospital Institution
   console.log('Creating Hospital Institution...');

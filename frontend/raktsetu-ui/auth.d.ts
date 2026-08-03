@@ -1,4 +1,6 @@
-import { type DefaultSession } from "next-auth";
+// Global module augmentations for next-auth v5 (Auth.js).
+// This file MUST NOT have top-level imports — they would turn it into
+// a regular module and break the ambient declare module augmentations.
 
 declare module "next-auth" {
   interface Session {
@@ -7,7 +9,7 @@ declare module "next-auth" {
       id?: string;
       phone?: string;
       roles?: string[];
-    } & DefaultSession["user"];
+    } & import("next-auth").DefaultSession["user"];
   }
 
   interface User {
@@ -24,7 +26,7 @@ declare module "@auth/core/types" {
       id?: string;
       phone?: string;
       roles?: string[];
-    } & DefaultSession["user"];
+    } & import("next-auth").DefaultSession["user"];
   }
 
   interface User {

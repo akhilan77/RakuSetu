@@ -94,6 +94,7 @@ model User {
   phone           String    @unique
   email           String?   @unique
   name            String
+  passwordHash    String?
   phoneVerifiedAt DateTime?
   lastLoginAt     DateTime?
   lastSeenAt      DateTime?
@@ -114,6 +115,7 @@ model User {
 
   @@index([createdAt])
 }
+
 
 model UserRole {
   id        String    @id @default(uuid())

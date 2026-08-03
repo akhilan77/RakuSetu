@@ -1,571 +1,371 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { apiClient } from "../../../lib/api";
-import {
-  Users,
-  Activity,
-  Heart,
-  Globe,
-  Calendar,
-  AlertTriangle,
-  RotateCw,
-  GitPullRequest,
-  CheckCircle,
-} from "lucide-react";
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  LineChart,
-  Line,
-  CartesianGrid,
-  Legend,
-} from "recharts";
-import {
-  KpiCard,
-  AnalyticsCard,
-  ChartContainer,
-  EmptyState,
-  LoadingState,
-} from "../../../components/analytics";
+import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 
 interface DonorSummary {
   totalDonors: number;
 }
 
-interface BloodGroupItem {
+interface BloodGroupDistribution {
   bloodGroup: string;
   count: number;
   percentage: number;
 }
 
-interface EligibilityItem {
+interface EligibilitySummary {
   status: string;
   count: number;
   percentage: number;
 }
 
-interface GeographyItem {
+interface GeographicDistribution {
   city: string;
   district: string;
   state: string;
   count: number;
 }
 
-interface MonthlyTrendItem {
+interface RetentionStats {
+  firstTimeDonors: number;
+  repeatDonors: number;
+  averageDonations: number;
+  retentionRate: number;
+}
+
+interface MonthlyTrend {
   month: string;
   donationCount: number;
   uniqueDonors: number;
 }
 
-interface DemandSummary {
-  totalRequests: number;
-  activeRequests: number;
-  fulfilledRequests: number;
-  cancelledRequests: number;
-}
-
-interface DemandBloodGroupItem {
-  bloodGroup: string;
-  requests: number;
-  percentage: number;
-}
-
-interface MetaInfo {
-  generatedAt: string;
-  isDevData: boolean;
-}
-
-interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  meta: MetaInfo;
-}
-
-const COLORS = [
-  "#ef4444",
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#6366f1",
-  "#8b5cf6",
-  "#ec4899",
-  "#14b8a6",
-  "#6b7280",
-];
-
-export default function AnalyticsPage() {
-  const [activeTab, setActiveTab] = useState<"overview" | "demand">("overview");
+export default function AnalyticsDashboard() {
+  const sessionResult = useSession();
+  const session = sessionResult?.data;
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Donor and general stats
-  const [summary, setSummary] = useState<DonorSummary | null>(null);
-  const [bloodGroups, setBloodGroups] = useState<BloodGroupItem[]>([]);
-  const [eligibility, setEligibility] = useState<EligibilityItem[]>([]);
-  const [geography, setGeography] = useState<GeographyItem[]>([]);
-  const [monthlyTrends, setMonthlyTrends] = useState<MonthlyTrendItem[]>([]);
-
-  // Demand stats
-  const [demandSummary, setDemandSummary] = useState<DemandSummary | null>(
-    null,
-  );
-  const [bloodGroupDemand, setBloodGroupDemand] = useState<
-    DemandBloodGroupItem[]
-  >([]);
-
+  const [error, setError] = useState("");
   const [isDevData, setIsDevData] = useState(false);
 
-  const fetchAnalytics = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // Analytics datasets
+  const [summary, setSummary] = useState<DonorSummary | null>(null);
+  const [bloodGroups, setBloodGroups] = useState<BloodGroupDistribution[]>([]);
+  const [eligibility, setEligibility] = useState<EligibilitySummary[]>([]);
+  const [geography, setGeography] = useState<GeographicDistribution[]>([]);
+  const [retention, setRetention] = useState<RetentionStats | null>(null);
+  const [monthlyTrends, setMonthlyTrends] = useState<MonthlyTrend[]>([]);
 
-      const [
-        summaryRes,
-        bgRes,
-        eligRes,
-        geoRes,
-        trendRes,
-        demandSumRes,
-        demandBgRes,
-      ] = await Promise.all([
-        apiClient<ApiResponse<DonorSummary>>(
-          "/api/v1/analytics/donors/summary",
-        ),
-        apiClient<ApiResponse<BloodGroupItem[]>>(
-          "/api/v1/analytics/donors/blood-groups",
-        ),
-        apiClient<ApiResponse<EligibilityItem[]>>(
-          "/api/v1/analytics/donors/eligibility",
-        ),
-        apiClient<ApiResponse<GeographyItem[]>>(
-          "/api/v1/analytics/donors/geography",
-        ),
-        apiClient<ApiResponse<MonthlyTrendItem[]>>(
-          "/api/v1/analytics/donors/monthly",
-        ),
-        apiClient<ApiResponse<DemandSummary>>(
-          "/api/v1/analytics/demand/summary",
-        ),
-        apiClient<ApiResponse<DemandBloodGroupItem[]>>(
-          "/api/v1/analytics/demand/blood-groups",
-        ),
-      ]);
-
-      setSummary(summaryRes.data);
-      setBloodGroups(bgRes.data);
-      setEligibility(eligRes.data);
-      setGeography(geoRes.data);
-      setMonthlyTrends(trendRes.data);
-      setDemandSummary(demandSumRes.data);
-      setBloodGroupDemand(demandBgRes.data);
-
-      setIsDevData(summaryRes.meta.isDevData || demandSumRes.meta.isDevData);
-    } catch (err: unknown) {
-      console.error(err);
-      setError("Failed to fetch healthcare analytics data. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const backendUrl =
+    process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:3000";
 
   useEffect(() => {
-    let active = true;
-    Promise.resolve().then(() => {
-      if (active) {
-        void fetchAnalytics();
+    async function fetchAnalytics() {
+      setLoading(true);
+      setError("");
+
+      const token = (session?.user as { accessToken?: string })?.accessToken;
+
+      const headers = {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
+      try {
+        const [
+          summaryRes,
+          bloodGroupRes,
+          eligibilityRes,
+          geographyRes,
+          retentionRes,
+          monthlyRes,
+        ] = await Promise.all([
+          fetch(`${backendUrl}/api/v1/analytics/donors/summary`, { headers }),
+          fetch(`${backendUrl}/api/v1/analytics/donors/blood-groups`, {
+            headers,
+          }),
+          fetch(`${backendUrl}/api/v1/analytics/donors/eligibility`, {
+            headers,
+          }),
+          fetch(`${backendUrl}/api/v1/analytics/donors/geography`, { headers }),
+          fetch(`${backendUrl}/api/v1/analytics/donors/retention`, { headers }),
+          fetch(`${backendUrl}/api/v1/analytics/donors/monthly`, { headers }),
+        ]);
+
+        const summaryJson = await summaryRes.json();
+        const bloodGroupJson = await bloodGroupRes.json();
+        const eligibilityJson = await eligibilityRes.json();
+        const geographyJson = await geographyRes.json();
+        const retentionJson = await retentionRes.json();
+        const monthlyJson = await monthlyRes.json();
+
+        if (summaryJson.meta?.isDevData) {
+          setIsDevData(true);
+        }
+
+        setSummary(summaryJson.data || { totalDonors: 0 });
+        setBloodGroups(bloodGroupJson.data || []);
+        setEligibility(eligibilityJson.data || []);
+        setGeography(geographyJson.data || []);
+        setRetention(retentionJson.data || null);
+        setMonthlyTrends(monthlyJson.data || []);
+      } catch (err) {
+        console.error("Failed to load analytics:", err);
+        setError("Failed to connect to analytics service.");
+      } finally {
+        setLoading(false);
       }
-    });
-    return () => {
-      active = false;
-    };
-  }, [fetchAnalytics]);
+    }
+
+    fetchAnalytics();
+  }, [session, backendUrl]);
 
   if (loading) {
-    return <LoadingState />;
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-2">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">
+            Loading donor analytics...
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[50vh] space-y-4">
-        <div className="bg-red-50 text-red-500 p-4 rounded-xl flex items-center space-x-2">
-          <AlertTriangle className="h-6 w-6" />
-          <span className="font-semibold">{error}</span>
-        </div>
+      <div className="p-6 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-center">
+        <p className="font-semibold">{error}</p>
         <button
-          onClick={fetchAnalytics}
-          className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition"
+          onClick={() => window.location.reload()}
+          className="mt-3 text-xs underline font-medium"
         >
-          <RotateCw className="h-4 w-4" />
-          <span>Retry</span>
+          Retry
         </button>
       </div>
     );
   }
 
-  const hasDonationTrends = monthlyTrends.some((t) => t.donationCount > 0);
-  const hasBloodGroups = bloodGroups.some((g) => g.count > 0);
-  const hasDemandGroup = bloodGroupDemand.some((d) => d.requests > 0);
-
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      {/* Dev Data Alert Banner */}
-      {isDevData && (
-        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-xl p-4 flex items-center space-x-3 text-sm">
-          <AlertTriangle className="h-5 w-5 shrink-0" />
-          <div>
-            <span className="font-semibold">Development Mode:</span> Showing
-            simulated/sandbox metrics. Based on current development dataset.
-          </div>
-        </div>
-      )}
-
-      {/* Header section */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+    <div className="space-y-6">
+      {/* Top Banner & Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">
-            Healthcare Analytics
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Real-time donor pool stats, regional coverage, and retention
-            performance.
+          <h1 className="text-2xl font-bold tracking-tight">Donor Analytics</h1>
+          <p className="text-sm text-muted-foreground">
+            Ecosystem donor demographics, distribution, and retention metrics
           </p>
         </div>
-        <div className="flex border border-slate-200 dark:border-slate-800 rounded-xl p-1 bg-slate-50 dark:bg-slate-900/50 self-start md:self-auto">
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-              activeTab === "overview"
-                ? "bg-white dark:bg-slate-800 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-800"
-            }`}
-          >
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveTab("demand")}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-              activeTab === "demand"
-                ? "bg-white dark:bg-slate-800 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-800"
-            }`}
-          >
-            Demand Trends
-          </button>
+        {isDevData && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-semibold self-start sm:self-auto">
+            <span>⚠️</span> Based on current development dataset
+          </div>
+        )}
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-5 rounded-xl border border-border/50 bg-card shadow-sm space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            Total Donors
+          </p>
+          <p className="text-3xl font-extrabold text-foreground">
+            {summary?.totalDonors ?? 0}
+          </p>
+        </div>
+
+        <div className="p-5 rounded-xl border border-border/50 bg-card shadow-sm space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            Eligible Donors
+          </p>
+          <p className="text-3xl font-extrabold text-green-600 dark:text-green-400">
+            {eligibility.find((e) => e.status === "Eligible")?.count ?? 0}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {eligibility.find((e) => e.status === "Eligible")?.percentage ?? 0}%
+            of total
+          </p>
+        </div>
+
+        <div className="p-5 rounded-xl border border-border/50 bg-card shadow-sm space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            Retention Rate
+          </p>
+          <p className="text-3xl font-extrabold text-primary">
+            {retention?.retentionRate ?? 0}%
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {retention?.repeatDonors ?? 0} repeat donors
+          </p>
+        </div>
+
+        <div className="p-5 rounded-xl border border-border/50 bg-card shadow-sm space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            Avg Donations / Donor
+          </p>
+          <p className="text-3xl font-extrabold text-foreground">
+            {retention?.averageDonations ?? 0}
+          </p>
         </div>
       </div>
 
-      {/* Overview Tab Content */}
-      {activeTab === "overview" && (
-        <div className="space-y-6">
-          {/* KPI Metrics row */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <KpiCard
-              title="Total Donors"
-              value={summary?.totalDonors}
-              icon={<Users className="h-6 w-6" />}
-              colorClass="bg-red-500/10 text-red-500"
-            />
-            <KpiCard
-              title="Total Requests"
-              value={demandSummary?.totalRequests}
-              icon={<GitPullRequest className="h-6 w-6" />}
-              colorClass="bg-blue-500/10 text-blue-500"
-            />
-            <KpiCard
-              title="Active Requests"
-              value={demandSummary?.activeRequests}
-              icon={<Activity className="h-6 w-6" />}
-              colorClass="bg-amber-500/10 text-amber-500"
-            />
-            <KpiCard
-              title="Fulfilled Requests"
-              value={demandSummary?.fulfilledRequests}
-              icon={<CheckCircle className="h-6 w-6" />}
-              colorClass="bg-emerald-500/10 text-emerald-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Blood group Pie chart */}
-            <AnalyticsCard
-              title="Blood Group Distribution"
-              icon={<Users className="h-5 w-5 text-slate-400" />}
-            >
-              {hasBloodGroups ? (
-                <ChartContainer heightClass="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={bloodGroups}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
-                        paddingAngle={4}
-                        dataKey="count"
-                        nameKey="bloodGroup"
-                      >
-                        {bloodGroups.map((_, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend
-                        layout="horizontal"
-                        align="center"
-                        verticalAlign="bottom"
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              ) : (
-                <EmptyState message="No donor profiles available to analyze." />
-              )}
-            </AnalyticsCard>
-
-            {/* Eligibility status Bar chart */}
-            <AnalyticsCard
-              title="Donor Eligibility Status"
-              icon={<Heart className="h-5 w-5 text-slate-400" />}
-            >
-              {summary && summary.totalDonors > 0 ? (
-                <ChartContainer heightClass="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={eligibility}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="status" stroke="#94a3b8" fontSize={12} />
-                      <YAxis stroke="#94a3b8" fontSize={12} />
-                      <Tooltip />
-                      <Bar
-                        dataKey="count"
-                        name="Donors Count"
-                        radius={[8, 8, 0, 0]}
-                      >
-                        <Cell fill="#10b981" />
-                        <Cell fill="#f59e0b" />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              ) : (
-                <EmptyState message="No donor profiles available to calculate eligibility." />
-              )}
-            </AnalyticsCard>
-          </div>
-
-          {/* Line Chart row */}
-          <AnalyticsCard
-            title="Monthly Donation Trends (Last 12 Months)"
-            icon={<Calendar className="h-5 w-5 text-slate-400" />}
-          >
-            {hasDonationTrends ? (
-              <ChartContainer>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthlyTrends}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
-                    <YAxis stroke="#94a3b8" fontSize={12} />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="donationCount"
-                      name="Donations"
-                      stroke="#ef4444"
-                      strokeWidth={3}
-                      activeDot={{ r: 6 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="uniqueDonors"
-                      name="Unique Donors"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            ) : (
-              <EmptyState message="No donation history records found for the past year." />
-            )}
-          </AnalyticsCard>
-
-          {/* Geography aggregation row */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800/60 flex items-center space-x-2">
-              <Globe className="h-5 w-5 text-slate-400" />
-              <h2 className="text-lg font-bold tracking-tight">
-                Geographic Coverage distribution
-              </h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-semibold border-b border-slate-100 dark:border-slate-800/60">
-                  <tr>
-                    <th className="px-6 py-4">City</th>
-                    <th className="px-6 py-4">District</th>
-                    <th className="px-6 py-4">State</th>
-                    <th className="px-6 py-4 text-right">Donors Count</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {geography.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="px-6 py-10 text-center text-slate-400"
-                      >
-                        No geographic data available. Add geocoded profiles.
-                      </td>
-                    </tr>
-                  ) : (
-                    geography.map((item, index) => (
-                      <tr
-                        key={index}
-                        className="hover:bg-slate-50/50 transition"
-                      >
-                        <td className="px-6 py-4 font-semibold">{item.city}</td>
-                        <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
-                          {item.district}
-                        </td>
-                        <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
-                          {item.state}
-                        </td>
-                        <td className="px-6 py-4 text-right font-bold text-red-500">
-                          {item.count}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+      {/* Main Grid: Blood Groups & Eligibility */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Blood Group Distribution */}
+        <div className="p-6 rounded-xl border border-border/50 bg-card shadow-sm space-y-4">
+          <h2 className="text-base font-bold text-foreground">
+            Blood Group Distribution
+          </h2>
+          <div className="space-y-3">
+            {bloodGroups.map((bg) => (
+              <div key={bg.bloodGroup} className="space-y-1">
+                <div className="flex justify-between text-xs font-medium">
+                  <span className="text-foreground font-semibold">
+                    {bg.bloodGroup.replace("_POS", "+").replace("_NEG", "-")}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {bg.count} ({bg.percentage}%)
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    style={{ width: `${Math.max(bg.percentage, 2)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      )}
 
-      {/* Demand Tab Content */}
-      {activeTab === "demand" && (
-        <div className="space-y-6">
-          {/* KPI Metrics row */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <KpiCard
-              title="Total Requests"
-              value={demandSummary?.totalRequests}
-              icon={<GitPullRequest className="h-6 w-6" />}
-              colorClass="bg-blue-500/10 text-blue-500"
-            />
-            <KpiCard
-              title="Active Requests"
-              value={demandSummary?.activeRequests}
-              icon={<Activity className="h-6 w-6" />}
-              colorClass="bg-amber-500/10 text-amber-500"
-            />
-            <KpiCard
-              title="Fulfilled Requests"
-              value={demandSummary?.fulfilledRequests}
-              icon={<CheckCircle className="h-6 w-6" />}
-              colorClass="bg-emerald-500/10 text-emerald-500"
-            />
-            <KpiCard
-              title="Cancelled Requests"
-              value={demandSummary?.cancelledRequests}
-              icon={<RotateCw className="h-6 w-6" />}
-              colorClass="bg-slate-500/10 text-slate-500"
-            />
+        {/* Eligibility Split */}
+        <div className="p-6 rounded-xl border border-border/50 bg-card shadow-sm space-y-4">
+          <h2 className="text-base font-bold text-foreground">
+            Eligibility Breakdown
+          </h2>
+          <div className="grid grid-cols-2 gap-4 pt-2">
+            {eligibility.map((item) => (
+              <div
+                key={item.status}
+                className="p-4 rounded-lg bg-muted/30 border border-border/40 space-y-2 text-center"
+              >
+                <span
+                  className={`inline-block w-3 h-3 rounded-full ${
+                    item.status === "Eligible" ? "bg-green-500" : "bg-amber-500"
+                  }`}
+                />
+                <p className="text-xs font-medium text-muted-foreground">
+                  {item.status}
+                </p>
+                <p className="text-2xl font-bold text-foreground">
+                  {item.count}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {item.percentage}%
+                </p>
+              </div>
+            ))}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Blood group demand chart */}
-            <AnalyticsCard
-              title="Request Distribution by Blood Group"
-              icon={<GitPullRequest className="h-5 w-5 text-slate-400" />}
-            >
-              {hasDemandGroup ? (
-                <ChartContainer heightClass="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={bloodGroupDemand}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="bloodGroup"
-                        stroke="#94a3b8"
-                        fontSize={12}
-                      />
-                      <YAxis stroke="#94a3b8" fontSize={12} />
-                      <Tooltip />
-                      <Bar
-                        dataKey="requests"
-                        name="Requests Count"
-                        radius={[8, 8, 0, 0]}
-                      >
-                        {bloodGroupDemand.map((_, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              ) : (
-                <EmptyState message="No requests recorded yet to view demand patterns." />
-              )}
-            </AnalyticsCard>
-
-            {/* Demand Summary Card list */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-6 rounded-2xl shadow-sm space-y-4">
-              <h2 className="text-lg font-bold tracking-tight">
-                Demand Pipeline Stats
-              </h2>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                <div className="py-3 flex justify-between">
-                  <span className="text-slate-500">Total Pipeline</span>
-                  <span className="font-bold">
-                    {demandSummary?.totalRequests}
-                  </span>
-                </div>
-                <div className="py-3 flex justify-between">
-                  <span className="text-slate-500">
-                    Active Requests (Matched/Searching)
-                  </span>
-                  <span className="font-bold text-amber-500">
-                    {demandSummary?.activeRequests}
-                  </span>
-                </div>
-                <div className="py-3 flex justify-between">
-                  <span className="text-slate-500">
-                    Completed Fulfilled Requests
-                  </span>
-                  <span className="font-bold text-emerald-500">
-                    {demandSummary?.fulfilledRequests}
-                  </span>
-                </div>
-                <div className="py-3 flex justify-between">
-                  <span className="text-slate-500">
-                    Cancelled / Terminated Requests
-                  </span>
-                  <span className="font-bold text-slate-400">
-                    {demandSummary?.cancelledRequests}
-                  </span>
-                </div>
+          <div className="pt-4 border-t border-border/40">
+            <h3 className="text-sm font-semibold text-foreground mb-2">
+              Donor Retention Overview
+            </h3>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex justify-between p-2 rounded bg-muted/20">
+                <span className="text-muted-foreground">
+                  First-Time Donors:
+                </span>
+                <span className="font-semibold">
+                  {retention?.firstTimeDonors ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between p-2 rounded bg-muted/20">
+                <span className="text-muted-foreground">Repeat Donors:</span>
+                <span className="font-semibold">
+                  {retention?.repeatDonors ?? 0}
+                </span>
               </div>
             </div>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Monthly Donation Trends */}
+      <div className="p-6 rounded-xl border border-border/50 bg-card shadow-sm space-y-4">
+        <h2 className="text-base font-bold text-foreground">
+          Monthly Donation Trends (Last 12 Months)
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          {monthlyTrends.map((trend) => (
+            <div
+              key={trend.month}
+              className="p-3 rounded-lg bg-muted/30 border border-border/40 space-y-1"
+            >
+              <p className="text-xs font-semibold text-muted-foreground">
+                {trend.month}
+              </p>
+              <p className="text-lg font-extrabold text-foreground">
+                {trend.donationCount}{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  donations
+                </span>
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {trend.uniqueDonors} unique donors
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Geographic Distribution Table */}
+      <div className="p-6 rounded-xl border border-border/50 bg-card shadow-sm space-y-4">
+        <h2 className="text-base font-bold text-foreground">
+          Geographic Distribution
+        </h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-border/60 text-muted-foreground font-semibold">
+                <th className="py-2.5 px-3">City</th>
+                <th className="py-2.5 px-3">District</th>
+                <th className="py-2.5 px-3">State</th>
+                <th className="py-2.5 px-3 text-right">Donors Count</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/30">
+              {geography.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="py-4 text-center text-muted-foreground"
+                  >
+                    No geographic data available
+                  </td>
+                </tr>
+              ) : (
+                geography.map((geo, index) => (
+                  <tr key={index} className="hover:bg-muted/20">
+                    <td className="py-2.5 px-3 font-medium text-foreground">
+                      {geo.city}
+                    </td>
+                    <td className="py-2.5 px-3 text-muted-foreground">
+                      {geo.district}
+                    </td>
+                    <td className="py-2.5 px-3 text-muted-foreground">
+                      {geo.state}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-foreground">
+                      {geo.count}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

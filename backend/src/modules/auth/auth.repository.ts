@@ -9,6 +9,21 @@ export class AuthRepository {
     });
   }
 
+  async findUserByEmail(email: string) {
+    return prisma.user.findUnique({
+      where: { email },
+      include: { roles: true },
+    });
+  }
+
+  async findUserByPhoneOrEmail(identifier: string) {
+    // Heuristic: if it contains '@' treat as email, otherwise phone
+    if (identifier.includes('@')) {
+      return this.findUserByEmail(identifier);
+    }
+    return this.findUserByPhone(identifier);
+  }
+
   async findUserById(id: string) {
     return prisma.user.findUnique({
       where: { id },

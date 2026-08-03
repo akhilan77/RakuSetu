@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import { otpService } from './otp.service.js';
 import { jwtService } from './jwt.service.js';
 import { authRepository } from './auth.repository.js';
@@ -194,5 +195,66 @@ export class AuthService {
       lastLoginAt: user.lastLoginAt,
     };
   }
+
+  async loginWithPassword(
+    identifier: string,
+    password: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const user = await authRepository.findUserByPhoneOrEmail(identifier);
+
+    if (!user || !user.passwordHash) {
+      throw new AppError(401, ErrorCode.UNAUTHENTICATED, 'Invalid credentials');
+    }
+
+    if (user.deletedAt) {
+      throw new AppError(403, ErrorCode.UNAUTHORIZED, 'Your account has been deactivated');
+    }
+
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      await auditService.log(null, 'User', user.id, 'LOGIN_FAILED', ipAddress, userAgent, {
+        reason: 'Invalid password',
+      });
+      throw new AppError(401, ErrorCode.UNAUTHENTICATED, 'Invalid credentials');
+    }
+
+    const roles = user.roles.map((r) => r.role);
+
+    const accessToken = jwtService.generateAccessToken({
+      userId: user.id,
+      phone: user.phone,
+      roles,
+      tokenVersion: user.tokenVersion,
+    });
+
+    const rawRefreshToken = jwtService.generateRefreshToken();
+    const tokenHash = jwtService.hashToken(rawRefreshToken);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+
+    await authRepository.storeRefreshToken(user.id, tokenHash, expiresAt, {
+      ipAddress,
+      userAgent,
+      deviceName: userAgent ? userAgent.substring(0, 50) : 'Unknown Device',
+    });
+
+    await auditService.log(user.id, 'User', user.id, 'USER_LOGGED_IN', ipAddress, userAgent, {
+      method: 'password',
+    });
+
+    return {
+      accessToken,
+      refreshToken: rawRefreshToken,
+      user: { id: user.id, phone: user.phone, name: user.name, roles },
+    };
+  }
+
+  /** Utility: hash a plain-text password (used in seeds / admin setup) */
+  async hashPassword(plain: string): Promise<string> {
+    return bcrypt.hash(plain, 12);
+  }
 }
 export const authService = new AuthService();
+

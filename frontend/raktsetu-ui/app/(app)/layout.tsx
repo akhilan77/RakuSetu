@@ -1,11 +1,22 @@
 "use client";
 
-import Link from "next/link";
+import { useSession, signOut } from "next-auth/react";
 import { usePathname } from "next/navigation";
-import { Home, Search, AlertOctagon, History, User, Heart } from "lucide-react";
+import Link from "next/link";
+import {
+  LayoutDashboard,
+  Home,
+  Search,
+  AlertOctagon,
+  History,
+  User,
+  Heart,
+  LogOut,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navigationItems = [
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Home", href: "/home", icon: Home },
   { name: "Search", href: "/search", icon: Search },
   { name: "SOS Request", href: "/request", icon: AlertOctagon, isSos: true },
@@ -15,6 +26,8 @@ const navigationItems = [
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const sessionResult = useSession();
+  const session = sessionResult?.data;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -58,21 +71,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* Sidebar Footer / User Profile Summary */}
-        <div className="p-4 border-t border-border bg-muted/40">
-          <div className="flex items-center gap-3">
+        {/* Sidebar Footer / User Profile Summary & Logout */}
+        <div className="p-4 border-t border-border bg-muted/40 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="h-9 w-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
-              AD
+              {session?.user?.name
+                ? session.user.name.substring(0, 2).toUpperCase()
+                : "RS"}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-foreground truncate">
-                Akhil Donor
+                {session?.user?.name || "RaktSetu User"}
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                +91 98765 43210
+                {(session?.user as { phone?: string })?.phone ||
+                  session?.user?.email ||
+                  "Signed in"}
               </p>
             </div>
           </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            title="Log Out"
+            className="p-2 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </aside>
 
@@ -87,8 +111,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Heart className="h-5 w-5 fill-primary" />
             <span>RaktSetu</span>
           </Link>
-          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs">
-            AD
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs">
+              {session?.user?.name
+                ? session.user.name.substring(0, 2).toUpperCase()
+                : "RS"}
+            </div>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              title="Log Out"
+              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </header>
 
