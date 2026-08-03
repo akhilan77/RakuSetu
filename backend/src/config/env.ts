@@ -12,7 +12,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url('DATABASE_URL must be a valid PostgreSQL connection URL'),
   REDIS_URL: z.string().url('REDIS_URL must be a valid Redis connection URL').default('redis://localhost:6379'),
   JWT_SECRET: z.string().min(8, 'JWT_SECRET must be at least 8 characters long'),
-  CORS_ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
+  CORS_ALLOWED_ORIGINS: z.string().default('http://localhost:3000,http://localhost:3001'),
+
   MSG91_KEY: z.string().optional(),
   MSG91_SENDER_ID: z.string().optional(),
   MSG91_TEMPLATE_ID: z.string().optional(),
